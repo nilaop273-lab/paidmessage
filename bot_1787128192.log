@@ -1,0 +1,15 @@
+2026-08-19 13:59:52,580 WARNING discord.client: PyNaCl is not installed, voice will NOT be supported.
+2026-08-19 13:59:52,581 INFO main: WATCHDOG_MODE=true — telegram polling handled by watchdog.py
+2026-08-19 13:59:52,581 INFO discord.client: Logging in using static token.
+2026-08-19 13:59:53,921 INFO discord.http: Found user agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36", build number 595897.
+2026-08-19 13:59:53,980 INFO discord.http: Found TLS fingerprint target "chrome146".
+2026-08-19 13:59:58,686 INFO discord.gateway: Connected to Gateway (session ID: a4410a5f08d5c550d3e95827a94ae5b5).
+2026-08-19 13:59:59,709 INFO monitor: [PAID] \u250c\u2500 SELF BOT STARTED \u2500
+\u2502 account=_nick.editz_ (1520721582169919580)
+\u2502 channel=1286768910968033331
+\u2502 trigger_author=lost_kd
+\u2502 cooldown=100.0s
+\u2502 initial_delay=5.0-15.0s
+\u2502 part_delay=4.0-10.0s
+\u2502 pool_size=6
+\u2514\u2500 READY

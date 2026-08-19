@@ -1,0 +1,30 @@
+2026-08-19 14:05:44,414 WARNING discord.client: PyNaCl is not installed, voice will NOT be supported.
+2026-08-19 14:05:44,414 INFO main: WATCHDOG_MODE=true — telegram polling handled by watchdog.py
+2026-08-19 14:05:44,415 INFO discord.client: Logging in using static token.
+2026-08-19 14:05:44,883 INFO discord.http: Found user agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36", build number 595897.
+2026-08-19 14:05:44,884 INFO discord.http: Found TLS fingerprint target "chrome146".
+2026-08-19 14:05:48,144 INFO discord.gateway: Connected to Gateway (session ID: 22c6d6b5cb55460660576bb145509882).
+2026-08-19 14:05:49,044 INFO monitor: [PAID] \u250c\u2500 SELF BOT STARTED \u2500
+\u2502 account=_nick.editz_ (1520721582169919580)
+\u2502 channel=1510370780393898096
+\u2502 trigger_author=sparrow.69.
+\u2502 cooldown=100.0s
+\u2502 initial_delay=5.0-15.0s
+\u2502 part_delay=4.0-10.0s
+\u2502 pool_size=6
+\u2514\u2500 READY
+2026-08-19 14:06:22,781 INFO handlers: [PAID] \u250c\u2500 request detected
+[PAID] \u2502 timestamp=2026-08-19 14:06:22
+[PAID] \u2502 trigger_author=sparrow.69.
+[PAID] \u2502 target_user=mrpheonix0559 (1536363051681583106)
+[PAID] \u2502 channel_id=1510370780393898096 message_id=1539553601217634346
+2026-08-19 14:06:22,783 INFO storage: [DB] claim_dm_slot user_id=1536363051681583106 session=user-1536363051681583106 claimed=True
+2026-08-19 14:06:22,783 INFO dm_sender: [DM] \u250c\u2500 DM sequence start
+[DM] \u2502 timestamp=2026-08-19 14:06:22
+[DM] \u2502 author=sparrow.69.
+[DM] \u2502 user=mrpheonix0559 (1536363051681583106)
+[DM] \u2502 parts=3 pool_index=3
+2026-08-19 14:06:34,519 INFO dm_sender: [DM] part 1 sent user=mrpheonix0559 content_len=35
+2026-08-19 14:06:41,273 INFO dm_sender: [DM] part 2 sent user=mrpheonix0559 content_len=29
+2026-08-19 14:06:47,017 INFO dm_sender: [DM] part 3 sent user=mrpheonix0559 content_len=43
+2026-08-19 14:06:47,020 INFO dm_sender: [DM] \u2514\u2500 DM sequence complete user=mrpheonix0559

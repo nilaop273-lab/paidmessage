@@ -6,6 +6,7 @@ import time
 log = logging.getLogger("handlers")
 
 REQUEST_PATTERN = re.compile(r"request by:\s*<@!?(\d+)>", re.IGNORECASE)
+REQUEST_PATTERN_NAME = re.compile(r"request by:\s*@([^\s<>]+)", re.IGNORECASE)
 
 
 def _strip_markdown(text):
@@ -23,45 +24,100 @@ def _author_matches(message, trigger_author):
     return False
 
 
-def _extract_target_user_id(content):
-    clean = _strip_markdown(content)
+def _combined_content(message):
+    parts = [message.content or ""]
+    for embed in message.embeds:
+        if embed.title:
+            parts.append(embed.title)
+        if embed.description:
+            parts.append(embed.description)
+        if embed.author and embed.author.name:
+            parts.append(embed.author.name)
+        if embed.footer and embed.footer.text:
+            parts.append(embed.footer.text)
+        for field in embed.fields:
+            if field.name:
+                parts.append(field.name)
+            if field.value:
+                parts.append(field.value)
+    return "\n".join(parts)
+
+
+def _extract_target_user_id(message):
+    combined = _combined_content(message)
+    clean = _strip_markdown(combined)
+
     match = REQUEST_PATTERN.search(clean)
     if match:
         return int(match.group(1))
+
+    match = REQUEST_PATTERN_NAME.search(clean)
+    if match:
+        return match.group(1)
+
+    return None
+
+
+def _find_user_by_name(client, name):
+    for guild in client.guilds:
+        for member in guild.members:
+            for attr in ("name", "display_name", "global_name"):
+                value = getattr(member, attr, None)
+                if value is not None and value == name:
+                    return member
     return None
 
 
 async def handle_message(message, settings, storage, dm_sender, client):
     if message.channel.id != settings.paid_request_channel_id:
         return
-    if not _author_matches(message, settings.paid_request_trigger_author):
-        return
 
-    target_user_id = _extract_target_user_id(message.content)
-    if target_user_id is None:
+    if not _author_matches(message, settings.paid_request_trigger_author):
         log.info(
-            "[PAID] trigger author matched but request pattern missing "
-            "message_id=%s author=%s",
+            "[PAID] author mismatch — got name=%r display=%r global=%r "
+            "want=%r message_id=%s",
+            getattr(message.author, "name", None),
+            getattr(message.author, "display_name", None),
+            getattr(message.author, "global_name", None),
+            settings.paid_request_trigger_author,
             message.id,
-            message.author.name,
         )
         return
+
+    target = _extract_target_user_id(message)
+    if target is None:
+        log.info(
+            "[PAID] author matched but request pattern missing "
+            "message_id=%s raw_content=%r embeds=%d",
+            message.id,
+            message.content,
+            len(message.embeds),
+        )
+        return
+
+    if isinstance(target, int):
+        user = client.get_user(target)
+        if user is None:
+            try:
+                user = await client.fetch_user(target)
+            except Exception as exc:
+                log.error(
+                    "[PAID] failed to resolve target user_id=%s exc=%s",
+                    target,
+                    exc,
+                )
+                return
+    else:
+        user = _find_user_by_name(client, target)
+        if user is None:
+            log.info(
+                "[PAID] could not resolve target name=%r via guilds", target
+            )
+            return
 
     if not storage.mark_processed(message.id):
         log.debug("[PAID] duplicate message_id=%s", message.id)
         return
-
-    user = client.get_user(target_user_id)
-    if user is None:
-        try:
-            user = await client.fetch_user(target_user_id)
-        except Exception as exc:
-            log.error(
-                "[PAID] failed to resolve target user_id=%s exc=%s",
-                target_user_id,
-                exc,
-            )
-            return
 
     log.info(
         "[PAID] ┌─ request detected\n"

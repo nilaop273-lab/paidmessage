@@ -38,9 +38,27 @@ class MonitorClient(discord.Client):
     async def on_message(self, message):
         if self.user is None or message.author.id == self.user.id:
             return
+
+        if message.channel.id != self.cfg.paid_request_channel_id:
+            return
+
+        log.info(
+            "[PAID] saw message in channel "
+            "message_id=%s author_name=%r display_name=%r "
+            "global_name=%r bot=%s content=%r embeds=%d",
+            message.id,
+            getattr(message.author, "name", None),
+            getattr(message.author, "display_name", None),
+            getattr(message.author, "global_name", None),
+            getattr(message.author, "bot", False),
+            message.content,
+            len(message.embeds),
+        )
+
         if self._dm_sender is None:
             log.error("dm_sender not set — ignoring message")
             return
+
         await handle_message(
             message, self.cfg, self._storage, self._dm_sender, self
         )

@@ -10,12 +10,7 @@ log = logging.getLogger("monitor")
 
 class MonitorClient(discord.Client):
     def __init__(self, settings, storage, dm_sender=None):
-        try:
-            intents = discord.Intents.default()
-            intents.message_content = True
-        except AttributeError:
-            intents = discord.Intents.all()
-        super().__init__(intents=intents)
+        super().__init__()          # no Intents reference — works on any fork
         self.cfg = settings
         self._storage = storage
         self._dm_sender = dm_sender
@@ -59,16 +54,6 @@ class MonitorClient(discord.Client):
             message.content,
             len(message.embeds),
         )
-
-        if not message.content and not message.embeds:
-            try:
-                raw = message.to_dict()
-            except Exception:
-                raw = vars(message)
-            log.info(
-                "[PAID] empty content/embeds — raw message dump:\n%s",
-                raw,
-            )
 
         if self._dm_sender is None:
             log.error("dm_sender not set — ignoring message")

@@ -1,7 +1,7 @@
 # [context: discord-selfbot-monitor, os: linux, arch: x86_64]
 import os
 from dataclasses import dataclass
-
+from pathlib import Path
 
 @dataclass
 class Settings:
@@ -19,9 +19,12 @@ class Settings:
     tg_chat_id: int
 
 
-def load_env_file(path=".env"):
+def load_env_file(path=None):
+    if path is None:
+        path = Path(__file__).resolve().parent / ".env"
+    path = Path(path)
     env = {}
-    if os.path.exists(path):
+    if path.exists():
         with open(path, "r", encoding="utf-8") as f:
             for raw in f:
                 line = raw.strip()

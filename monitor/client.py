@@ -10,7 +10,7 @@ log = logging.getLogger("monitor")
 
 class MonitorClient(discord.Client):
     def __init__(self, settings, storage, dm_sender=None):
-        super().__init__()          # no Intents reference — works on any fork
+        super().__init__()
         self.cfg = settings
         self._storage = storage
         self._dm_sender = dm_sender
@@ -42,6 +42,7 @@ class MonitorClient(discord.Client):
         if message.channel.id != self.cfg.paid_request_channel_id:
             return
 
+        # Log what the gateway delivered
         log.info(
             "[PAID] saw message in channel "
             "message_id=%s author_name=%r display_name=%r "
@@ -54,6 +55,28 @@ class MonitorClient(discord.Client):
             message.content,
             len(message.embeds),
         )
+
+        # If the gateway stripped content, fetch the full message via HTTP
+        if not message.content and not message.embeds:
+            try:
+                fetched = await message.channel.fetch_message(message.id)
+                if fetched:
+                    log.info(
+                        "[PAID] fetched full message "
+                        "message_id=%s content=%r embeds=%d",
+                        fetched.id,
+                        fetched.content,
+                        len(fetched.embeds),
+                    )
+                    message = fetched
+            except Exception as exc:
+                log.error(
+                    "[PAID] fetch_message failed message_id=%s "
+                    "error=%s: %s",
+                    message.id,
+                    type(exc).__name__,
+                    exc,
+                )
 
         if self._dm_sender is None:
             log.error("dm_sender not set — ignoring message")

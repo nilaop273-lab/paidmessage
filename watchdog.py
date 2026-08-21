@@ -151,6 +151,7 @@ def _start_bot():
         _proc = subprocess.Popen(
             [PYTHON_BIN, "-u", str(MAIN_SCRIPT)],
             env=env,
+            cwd=BASE_DIR,
             stdout=out,
             stderr=err,
             start_new_session=True,

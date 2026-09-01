@@ -24,8 +24,11 @@ def _author_matches(message, trigger_author):
     return False
 
 
-def _combined_content(message):
-    parts = [message.content or ""]
+def _combined_content(message, content_override=None):
+    if content_override is not None:
+        parts = [content_override]
+    else:
+        parts = [message.content or ""]
     for embed in message.embeds:
         if embed.title:
             parts.append(embed.title)
@@ -43,8 +46,8 @@ def _combined_content(message):
     return "\n".join(parts)
 
 
-def _extract_target_user_id(message):
-    combined = _combined_content(message)
+def _extract_target_user_id(message, content_override=None):
+    combined = _combined_content(message, content_override)
     clean = _strip_markdown(combined)
 
     match = REQUEST_PATTERN.search(clean)
@@ -68,7 +71,8 @@ def _find_user_by_name(client, name):
     return None
 
 
-async def handle_message(message, settings, storage, dm_sender, client):
+async def handle_message(message, settings, storage, dm_sender, client,
+                         content_override=None):
     if message.channel.id != settings.paid_request_channel_id:
         return
 
@@ -84,14 +88,15 @@ async def handle_message(message, settings, storage, dm_sender, client):
         )
         return
 
-    target = _extract_target_user_id(message)
+    target = _extract_target_user_id(message, content_override)
     if target is None:
         log.info(
             "[PAID] author matched but request pattern missing "
-            "message_id=%s raw_content=%r embeds=%d",
+            "message_id=%s raw_content=%r embeds=%d override=%r",
             message.id,
             message.content,
             len(message.embeds),
+            content_override,
         )
         return
 

@@ -10,6 +10,8 @@ log = logging.getLogger("monitor")
 
 class MonitorClient(discord.Client):
     def __init__(self, settings, storage, dm_sender=None):
+        # No Intents — selfbots do not need them.
+        # The previous working version used super().__init__() bare.
         super().__init__()
         self.cfg = settings
         self._storage = storage
@@ -42,6 +44,9 @@ class MonitorClient(discord.Client):
         if message.channel.id != self.cfg.paid_request_channel_id:
             return
 
+        content = getattr(message, "content", "") or ""
+        embeds = getattr(message, "embeds", []) or []
+
         log.info(
             "[PAID] saw message in channel "
             "message_id=%s author_name=%r display_name=%r "
@@ -51,56 +56,56 @@ class MonitorClient(discord.Client):
             getattr(message.author, "display_name", None),
             getattr(message.author, "global_name", None),
             getattr(message.author, "bot", False),
-            message.content,
-            len(message.embeds),
+            content,
+            len(embeds),
         )
 
-        combined_content = message.content or ""
+        combined_content = content
 
-        # If content and embeds are empty, check for a referenced (quoted) message
-        if not message.content and not message.embeds:
+        # If content and embeds are empty, try to get the referenced message
+        if not content and not embeds:
             referenced = None
-            try:
-                referenced = message.referenced_message
-                if referenced is None and message.reference is not None:
-                    ref_id = getattr(message.reference, "message_id", None)
-                    if ref_id:
+            ref = getattr(message, "reference", None)
+            if ref is not None:
+                ref_id = getattr(ref, "message_id", None)
+                if ref_id:
+                    try:
                         referenced = await message.channel.fetch_message(ref_id)
-            except Exception as exc:
-                log.error(
-                    "[PAID] failed to fetch referenced message: %s: %s",
-                    type(exc).__name__, exc,
-                )
-
+                    except Exception as exc:
+                        log.error(
+                            "[PAID] failed to fetch referenced message %s: %s: %s",
+                            ref_id, type(exc).__name__, exc,
+                        )
             if referenced is not None:
+                ref_content = getattr(referenced, "content", "") or ""
+                ref_embeds = getattr(referenced, "embeds", []) or []
                 log.info(
-                    "[PAID] found referenced message "
-                    "ref_id=%s content=%r embeds=%d",
-                    referenced.id,
-                    referenced.content,
-                    len(referenced.embeds),
+                    "[PAID] referenced message found ref_id=%s content=%r embeds=%d",
+                    referenced.id, ref_content, len(ref_embeds),
                 )
-                combined_content = (referenced.content or "")
-                if not combined_content and referenced.embeds:
-                    for embed in referenced.embeds:
-                        if embed.description:
-                            combined_content += embed.description + "\n"
-                        if embed.title:
-                            combined_content += embed.title + "\n"
-                        for field in embed.fields:
-                            combined_content += f"{field.name}: {field.value}\n"
-            else:
+                combined_content = ref_content
+                if not combined_content:
+                    buf = []
+                    for e in ref_embeds:
+                        t = getattr(e, "title", None)
+                        d = getattr(e, "description", None)
+                        if t:
+                            buf.append(t)
+                        if d:
+                            buf.append(d)
+                        for f in getattr(e, "fields", []) or []:
+                            buf.append(f"{getattr(f, 'name', '')} {getattr(f, 'value', '')}")
+                    combined_content = "\n".join(buf)
+
+            if not combined_content:
                 log.warning(
-                    "[PAID] message is empty and no referenced message found. "
-                    "Raw message dump:\n%s",
-                    message.to_dict() if hasattr(message, "to_dict") else vars(message),
+                    "[PAID] no content, no referenced text. Message has no usable payload."
                 )
 
         if self._dm_sender is None:
             log.error("dm_sender not set — ignoring message")
             return
 
-        # Pass combined_content via new optional parameter
         await handle_message(
             message, self.cfg, self._storage, self._dm_sender, self,
             content_override=combined_content,

@@ -5,19 +5,32 @@ import time
 
 log = logging.getLogger("handlers")
 
-REQUEST_PATTERN = re.compile(r"request by:\s*<@!?(\d+)>", re.IGNORECASE)
-# keep dots and underscores (usernames like soup.xd_ / ProVfx)
+# Normal Discord mention: request by: <@799...> or <@!799...>
+REQUEST_PATTERN = re.compile(
+    r"request by:\s*@?<@!?(\d+)>",
+    re.IGNORECASE,
+)
+# Broken double form that some bots emit: request by: @<@799...>
+REQUEST_PATTERN_DOUBLE = re.compile(
+    r"request by:\s*@?<@!?(\d+)>",
+    re.IGNORECASE,
+)
+# Plain username form: request by: @soup.xd_ or request by: soup.xd_
 REQUEST_PATTERN_NAME = re.compile(
-    r"request by:\s*@?([A-Za-z0-9._]+)", re.IGNORECASE
+    r"request by:\s*@?([A-Za-z0-9._]+)",
+    re.IGNORECASE,
+)
+# Extra: any bare snowflake after "request by"
+REQUEST_PATTERN_ID_LOOSE = re.compile(
+    r"request by:\s*@?<?@?!?(\d{17,20})>?",
+    re.IGNORECASE,
 )
 
 
 def _strip_markdown(text):
-    # only strip formatting markers that are NOT part of usernames
-    # do NOT remove single underscores — they appear in modern usernames
+    # keep underscores (usernames) — only strip real markdown wrappers
     for marker in ("***", "__", "~~", "**"):
         text = text.replace(marker, "")
-    # remove italic * only when not mid-word
     text = re.sub(r"(?<!\w)\*(?!\w)", "", text)
     return text
 
@@ -56,26 +69,39 @@ def _combined_content(message, content_override=None):
 def _extract_target_user_id(message, content_override=None):
     combined = _combined_content(message, content_override)
     clean = _strip_markdown(combined)
-    match = REQUEST_PATTERN.search(clean)
-    if match:
-        return int(match.group(1))
+
+    # 1) proper / double mention with snowflake  → int id (best)
+    for pat in (REQUEST_PATTERN, REQUEST_PATTERN_DOUBLE, REQUEST_PATTERN_ID_LOOSE):
+        match = pat.search(clean)
+        if match:
+            try:
+                return int(match.group(1))
+            except (TypeError, ValueError):
+                pass
+
+    # 2) plain username
     match = REQUEST_PATTERN_NAME.search(clean)
     if match:
-        return match.group(1)
+        name = match.group(1)
+        # skip if it looks like a pure snowflake we already failed on
+        if name.isdigit() and len(name) >= 17:
+            try:
+                return int(name)
+            except ValueError:
+                pass
+        return name
+
     return None
 
 
 def _name_variants(name: str):
-    """Generate lookup candidates for a username that may have trailing _ etc."""
     name = (name or "").strip()
     if not name:
         return []
     variants = [name]
-    # without trailing underscores (Discord display sometimes adds them)
     stripped = name.rstrip("_")
     if stripped and stripped not in variants:
         variants.append(stripped)
-    # without leading @
     if name.startswith("@"):
         variants.append(name[1:])
     return variants
@@ -85,7 +111,6 @@ def _find_user_by_name(client, name):
     variants = _name_variants(name)
     if not variants:
         return None
-    # exact match first across all cached members
     for guild in client.guilds:
         for member in guild.members:
             for attr in ("name", "display_name", "global_name"):
@@ -94,7 +119,6 @@ def _find_user_by_name(client, name):
                     continue
                 if value in variants or value.rstrip("_") in variants:
                     return member
-    # case-insensitive fallback
     lower_variants = {v.lower() for v in variants}
     for guild in client.guilds:
         for member in guild.members:
@@ -102,7 +126,10 @@ def _find_user_by_name(client, name):
                 value = getattr(member, attr, None)
                 if value is None:
                     continue
-                if value.lower() in lower_variants or value.lower().rstrip("_") in lower_variants:
+                if (
+                    value.lower() in lower_variants
+                    or value.lower().rstrip("_") in lower_variants
+                ):
                     return member
     return None
 
@@ -156,8 +183,6 @@ async def handle_message(
     else:
         user = _find_user_by_name(client, target)
         if user is None:
-            # last resort: try the global user cache / fetch by name is not possible,
-            # so try a broader search and log what we tried
             log.info(
                 "[PAID] could not resolve target name=%r (variants=%s) via guilds — "
                 "user is probably not sharing a server with the selfbot account",

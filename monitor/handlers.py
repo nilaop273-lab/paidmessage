@@ -6,15 +6,19 @@ import time
 log = logging.getLogger("handlers")
 
 REQUEST_PATTERN = re.compile(r"request by:\s*<@!?(\d+)>", re.IGNORECASE)
-# tolerates both "@ProVfx" and "ProVfx" and the blue-mention display form
+# keep dots and underscores (usernames like soup.xd_ / ProVfx)
 REQUEST_PATTERN_NAME = re.compile(
-    r"request by:\s*@?([^\s<>@]+)", re.IGNORECASE
+    r"request by:\s*@?([A-Za-z0-9._]+)", re.IGNORECASE
 )
 
 
 def _strip_markdown(text):
-    for marker in ("***", "__", "~~", "**", "*", "_"):
+    # only strip formatting markers that are NOT part of usernames
+    # do NOT remove single underscores — they appear in modern usernames
+    for marker in ("***", "__", "~~", "**"):
         text = text.replace(marker, "")
+    # remove italic * only when not mid-word
+    text = re.sub(r"(?<!\w)\*(?!\w)", "", text)
     return text
 
 
@@ -61,12 +65,44 @@ def _extract_target_user_id(message, content_override=None):
     return None
 
 
+def _name_variants(name: str):
+    """Generate lookup candidates for a username that may have trailing _ etc."""
+    name = (name or "").strip()
+    if not name:
+        return []
+    variants = [name]
+    # without trailing underscores (Discord display sometimes adds them)
+    stripped = name.rstrip("_")
+    if stripped and stripped not in variants:
+        variants.append(stripped)
+    # without leading @
+    if name.startswith("@"):
+        variants.append(name[1:])
+    return variants
+
+
 def _find_user_by_name(client, name):
+    variants = _name_variants(name)
+    if not variants:
+        return None
+    # exact match first across all cached members
     for guild in client.guilds:
         for member in guild.members:
             for attr in ("name", "display_name", "global_name"):
                 value = getattr(member, attr, None)
-                if value is not None and value == name:
+                if value is None:
+                    continue
+                if value in variants or value.rstrip("_") in variants:
+                    return member
+    # case-insensitive fallback
+    lower_variants = {v.lower() for v in variants}
+    for guild in client.guilds:
+        for member in guild.members:
+            for attr in ("name", "display_name", "global_name"):
+                value = getattr(member, attr, None)
+                if value is None:
+                    continue
+                if value.lower() in lower_variants or value.lower().rstrip("_") in lower_variants:
                     return member
     return None
 
@@ -120,8 +156,13 @@ async def handle_message(
     else:
         user = _find_user_by_name(client, target)
         if user is None:
+            # last resort: try the global user cache / fetch by name is not possible,
+            # so try a broader search and log what we tried
             log.info(
-                "[PAID] could not resolve target name=%r via guilds", target
+                "[PAID] could not resolve target name=%r (variants=%s) via guilds — "
+                "user is probably not sharing a server with the selfbot account",
+                target,
+                _name_variants(target),
             )
             return
 

@@ -62,6 +62,51 @@ def _extract_from_components(components):
     return texts
 
 
+def _text_from_raw_payload(raw: dict) -> str:
+    """Pull every usable string from a raw message dict returned by HTTP."""
+    if not isinstance(raw, dict):
+        return ""
+    parts = []
+
+    content = raw.get("content") or ""
+    if content.strip():
+        parts.append(content)
+
+    for emb in raw.get("embeds") or []:
+        if not isinstance(emb, dict):
+            continue
+        for key in ("title", "description"):
+            val = emb.get(key)
+            if val and isinstance(val, str) and val.strip():
+                parts.append(val)
+        author = emb.get("author") or {}
+        if isinstance(author, dict) and author.get("name"):
+            parts.append(str(author["name"]))
+        footer = emb.get("footer") or {}
+        if isinstance(footer, dict) and footer.get("text"):
+            parts.append(str(footer["text"]))
+        for field in emb.get("fields") or []:
+            if not isinstance(field, dict):
+                continue
+            name = field.get("name") or ""
+            value = field.get("value") or ""
+            if name or value:
+                parts.append(f"{name} {value}".strip())
+
+    # Components V2 + legacy
+    comp_texts = _extract_from_components(raw.get("components") or [])
+    parts.extend(comp_texts)
+
+    # interaction / message metadata sometimes carries the trigger text
+    interaction = raw.get("interaction") or {}
+    if isinstance(interaction, dict):
+        name = interaction.get("name")
+        if name:
+            parts.append(str(name))
+
+    return "\n".join(p for p in parts if p and str(p).strip())
+
+
 class MonitorClient(discord.Client):
     def __init__(self, settings, storage, dm_sender=None):
         super().__init__()
@@ -88,6 +133,20 @@ class MonitorClient(discord.Client):
         )
         log.info("[PAID] %s", banner)
 
+    async def _raw_get_message(self, channel_id: int, message_id: int):
+        """Bypass library parsing — hit the REST endpoint directly."""
+        try:
+            # discord.py-self exposes the low-level HTTP client on the connection
+            data = await self.http.get_message(channel_id, message_id)
+            return data
+        except Exception as exc:
+            log.error(
+                "[PAID] raw http.get_message failed: %s: %s",
+                type(exc).__name__,
+                exc,
+            )
+            return None
+
     async def on_message(self, message):
         if self.user is None or message.author.id == self.user.id:
             return
@@ -96,6 +155,7 @@ class MonitorClient(discord.Client):
 
         content = getattr(message, "content", "") or ""
         embeds = getattr(message, "embeds", []) or []
+        components = getattr(message, "components", None) or []
 
         log.info(
             "[PAID] saw message in channel "
@@ -108,26 +168,28 @@ class MonitorClient(discord.Client):
             getattr(message.author, "bot", False),
             content,
             len(embeds),
-            len(getattr(message, "components", None) or []),
+            len(components),
         )
 
-        # If the author is a bot, the gateway often omits content.
-        # Force a full HTTP fetch to obtain it (and components).
-        if getattr(message.author, "bot", False) and not content and not embeds:
+        # 1) Normal library fetch (still useful when it works)
+        if getattr(message.author, "bot", False) and (
+            not content and not embeds and not components
+        ):
             try:
                 fetched = await message.channel.fetch_message(message.id)
                 if fetched:
+                    content = getattr(fetched, "content", "") or ""
+                    embeds = getattr(fetched, "embeds", []) or []
+                    components = getattr(fetched, "components", None) or []
+                    message = fetched
                     log.info(
                         "[PAID] fetched bot message via HTTP "
                         "message_id=%s content=%r embeds=%d components=%d",
                         fetched.id,
-                        getattr(fetched, "content", "") or "",
-                        len(getattr(fetched, "embeds", []) or []),
-                        len(getattr(fetched, "components", None) or []),
+                        content,
+                        len(embeds),
+                        len(components),
                     )
-                    message = fetched
-                    content = getattr(message, "content", "") or ""
-                    embeds = getattr(message, "embeds", []) or []
             except Exception as exc:
                 log.error(
                     "[PAID] HTTP fetch for bot message failed: %s: %s",
@@ -135,37 +197,54 @@ class MonitorClient(discord.Client):
                     exc,
                 )
 
-        # Components V2: text lives in TextDisplay (type 10) etc.
-        components = getattr(message, "components", None) or []
+        # 2) Component walk on whatever the library gave us
         comp_texts = _extract_from_components(components)
         if comp_texts:
-            comp_joined = "\n".join(comp_texts)
+            joined = "\n".join(comp_texts)
             log.info(
                 "[PAID] extracted %d component text pieces (len=%d)",
                 len(comp_texts),
-                len(comp_joined),
+                len(joined),
             )
-            if not content:
-                content = comp_joined
-            else:
-                content = content + "\n" + comp_joined
+            content = (content + "\n" + joined).strip() if content else joined
 
-        # Fallback: raw to_dict if library objects gave nothing
-        if not content and not embeds and hasattr(message, "to_dict"):
-            try:
-                raw = message.to_dict()
+        # 3) CRITICAL: raw REST payload — library often strips Components V2
+        if not content:
+            raw = await self._raw_get_message(message.channel.id, message.id)
+            if raw is not None:
+                # log a short summary so we can see what Discord actually sent
+                flags = raw.get("flags", 0)
                 raw_comps = raw.get("components") or []
-                raw_texts = _extract_from_components(raw_comps)
-                if raw_texts:
-                    content = "\n".join(raw_texts)
-                    log.info(
-                        "[PAID] extracted from raw to_dict components len=%d",
-                        len(content),
-                    )
-            except Exception as exc:
-                log.debug("[PAID] to_dict component extract failed: %s", exc)
+                log.info(
+                    "[PAID] raw payload flags=%s components=%d content_len=%d",
+                    flags,
+                    len(raw_comps),
+                    len(raw.get("content") or ""),
+                )
+                # dump first 1500 chars of the raw dict for debugging (one time)
+                try:
+                    import json
+                    dump = json.dumps(raw, ensure_ascii=False, default=str)
+                    log.info("[PAID] raw dump (truncated): %s", dump[:1500])
+                except Exception:
+                    pass
 
-        # Fallback for any still-empty message (reference / reply)
+                extracted = _text_from_raw_payload(raw)
+                if extracted:
+                    content = extracted
+                    log.info(
+                        "[PAID] extracted from raw payload len=%d preview=%r",
+                        len(content),
+                        content[:200],
+                    )
+                else:
+                    log.warning(
+                        "[PAID] raw payload also empty of usable text. "
+                        "keys=%s",
+                        list(raw.keys()) if isinstance(raw, dict) else type(raw),
+                    )
+
+        # 4) Last-resort: referenced / replied-to message
         if not content and not embeds:
             referenced = None
             ref = getattr(message, "reference", None)
@@ -193,10 +272,10 @@ class MonitorClient(discord.Client):
                     len(ref_embeds),
                     len(ref_comp_texts),
                 )
-                combined_content = ref_content
-                if not combined_content and ref_comp_texts:
-                    combined_content = "\n".join(ref_comp_texts)
-                if not combined_content:
+                combined = ref_content
+                if not combined and ref_comp_texts:
+                    combined = "\n".join(ref_comp_texts)
+                if not combined:
                     buf = []
                     for e in ref_embeds:
                         t = getattr(e, "title", None)
@@ -209,14 +288,19 @@ class MonitorClient(discord.Client):
                             buf.append(
                                 f"{getattr(f, 'name', '')} {getattr(f, 'value', '')}"
                             )
-                    combined_content = "\n".join(buf)
-                content = combined_content
+                    combined = "\n".join(buf)
+                # also try raw for the referenced message
+                if not combined:
+                    raw_ref = await self._raw_get_message(
+                        message.channel.id, referenced.id
+                    )
+                    if raw_ref:
+                        combined = _text_from_raw_payload(raw_ref)
+                content = combined
                 embeds = ref_embeds
             else:
                 log.warning(
-                    "[PAID] message empty and no referenced text / no components. "
-                    "Raw dump: %s",
-                    getattr(message, "to_dict", lambda: None)(),
+                    "[PAID] message empty and no referenced text / no components."
                 )
 
         if self._dm_sender is None:

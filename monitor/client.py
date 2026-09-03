@@ -10,8 +10,6 @@ log = logging.getLogger("monitor")
 
 class MonitorClient(discord.Client):
     def __init__(self, settings, storage, dm_sender=None):
-        # No Intents — selfbots do not need them.
-        # The previous working version used super().__init__() bare.
         super().__init__()
         self.cfg = settings
         self._storage = storage
@@ -60,9 +58,29 @@ class MonitorClient(discord.Client):
             len(embeds),
         )
 
-        combined_content = content
+        # If the author is a bot, the gateway often omits content.
+        # Force a full HTTP fetch to obtain it.
+        if getattr(message.author, "bot", False) and not content and not embeds:
+            try:
+                fetched = await message.channel.fetch_message(message.id)
+                if fetched:
+                    log.info(
+                        "[PAID] fetched bot message via HTTP "
+                        "message_id=%s content=%r embeds=%d",
+                        fetched.id,
+                        getattr(fetched, "content", "") or "",
+                        len(getattr(fetched, "embeds", []) or []),
+                    )
+                    message = fetched
+                    content = getattr(message, "content", "") or ""
+                    embeds = getattr(message, "embeds", []) or []
+            except Exception as exc:
+                log.error(
+                    "[PAID] HTTP fetch for bot message failed: %s: %s",
+                    type(exc).__name__, exc,
+                )
 
-        # If content and embeds are empty, try to get the referenced message
+        # Fallback for any empty message (non-bot or fetch failed)
         if not content and not embeds:
             referenced = None
             ref = getattr(message, "reference", None)
@@ -73,8 +91,8 @@ class MonitorClient(discord.Client):
                         referenced = await message.channel.fetch_message(ref_id)
                     except Exception as exc:
                         log.error(
-                            "[PAID] failed to fetch referenced message %s: %s: %s",
-                            ref_id, type(exc).__name__, exc,
+                            "[PAID] fetch referenced failed: %s: %s",
+                            type(exc).__name__, exc,
                         )
             if referenced is not None:
                 ref_content = getattr(referenced, "content", "") or ""
@@ -96,10 +114,13 @@ class MonitorClient(discord.Client):
                         for f in getattr(e, "fields", []) or []:
                             buf.append(f"{getattr(f, 'name', '')} {getattr(f, 'value', '')}")
                     combined_content = "\n".join(buf)
-
-            if not combined_content:
+                content = combined_content
+                embeds = ref_embeds
+            else:
                 log.warning(
-                    "[PAID] no content, no referenced text. Message has no usable payload."
+                    "[PAID] message empty and no referenced text. "
+                    "Raw dump: %s",
+                    getattr(message, "to_dict", lambda: None)(),
                 )
 
         if self._dm_sender is None:
@@ -108,5 +129,5 @@ class MonitorClient(discord.Client):
 
         await handle_message(
             message, self.cfg, self._storage, self._dm_sender, self,
-            content_override=combined_content,
+            content_override=content,
         )

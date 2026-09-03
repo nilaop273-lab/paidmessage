@@ -6,7 +6,10 @@ import time
 log = logging.getLogger("handlers")
 
 REQUEST_PATTERN = re.compile(r"request by:\s*<@!?(\d+)>", re.IGNORECASE)
-REQUEST_PATTERN_NAME = re.compile(r"request by:\s*@([^\s<>]+)", re.IGNORECASE)
+# tolerates both "@ProVfx" and "ProVfx" and the blue-mention display form
+REQUEST_PATTERN_NAME = re.compile(
+    r"request by:\s*@?([^\s<>@]+)", re.IGNORECASE
+)
 
 
 def _strip_markdown(text):
@@ -49,15 +52,12 @@ def _combined_content(message, content_override=None):
 def _extract_target_user_id(message, content_override=None):
     combined = _combined_content(message, content_override)
     clean = _strip_markdown(combined)
-
     match = REQUEST_PATTERN.search(clean)
     if match:
         return int(match.group(1))
-
     match = REQUEST_PATTERN_NAME.search(clean)
     if match:
         return match.group(1)
-
     return None
 
 
@@ -71,11 +71,16 @@ def _find_user_by_name(client, name):
     return None
 
 
-async def handle_message(message, settings, storage, dm_sender, client,
-                         content_override=None):
+async def handle_message(
+    message,
+    settings,
+    storage,
+    dm_sender,
+    client,
+    content_override=None,
+):
     if message.channel.id != settings.paid_request_channel_id:
         return
-
     if not _author_matches(message, settings.paid_request_trigger_author):
         log.info(
             "[PAID] author mismatch — got name=%r display=%r global=%r "
@@ -149,6 +154,8 @@ async def handle_message(message, settings, storage, dm_sender, client,
         )
         return
 
-    ok = await dm_sender.send_dm_sequence(user, message.author.name, session_key)
+    ok = await dm_sender.send_dm_sequence(
+        user, message.author.name, session_key
+    )
     if not ok:
         log.info("[PAID] └─ DM not delivered target_user=%s", user.name)

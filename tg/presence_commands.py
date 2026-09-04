@@ -3,16 +3,6 @@
 Telegram command handlers for Discord presence control.
 
 Wire into TelegramBot._handle_command (and SignalManager if you use file signals).
-
-Commands:
-  /playing <text>
-  /watching <text>
-  /listening <text>
-  /competing <text>
-  /stream <text>
-  /presence clear
-  /presence status <online|idle|dnd|invisible>
-  /presence
 """
 
 from __future__ import annotations
@@ -20,6 +10,19 @@ from __future__ import annotations
 import logging
 
 log = logging.getLogger("tg.presence")
+
+PRESENCE_HELP = (
+    "🎮  PRESENCE\n"
+    "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    "/playing <text>     set Playing status\n"
+    "/watching <text>    set Watching status\n"
+    "/listening <text>   set Listening status\n"
+    "/competing <text>   set Competing status\n"
+    "/stream <text>      set Streaming status\n"
+    "/presence           show current presence\n"
+    "/presence clear     clear activity\n"
+    "/presence status <online|idle|dnd|invisible>"
+)
 
 
 async def handle_presence_command(text: str, presence, reply_coro) -> bool:
@@ -80,15 +83,9 @@ async def handle_presence_command(text: str, presence, reply_coro) -> bool:
         await reply_coro(f"presence set: {presence.describe()}")
         return True
 
-    await reply_coro(
-        "presence commands:\n"
-        "/playing <text>\n"
-        "/watching <text>\n"
-        "/listening <text>\n"
-        "/competing <text>\n"
-        "/stream <text>\n"
-        "/presence clear\n"
-        "/presence status <online|idle|dnd|invisible>\n"
-        "/presence"
-    )
+    if sub in ("help", "?"):
+        await reply_coro(PRESENCE_HELP)
+        return True
+
+    await reply_coro(PRESENCE_HELP)
     return True

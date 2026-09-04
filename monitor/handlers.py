@@ -209,17 +209,32 @@ async def handle_message(
         message.id,
     )
 
-    remaining = storage.get_cooldown_remaining(
-        user.id, settings.dm_cooldown_seconds
-    )
-    if remaining > 0:
-        log.info(
-            "[PAID] └─ skipped target_user=%s reason=cooldown "
-            "remaining=%.0fs (%.1fh)",
-            user.name,
-            remaining,
-            remaining / 3600.0,
+    # compatible with old Storage (check_cooldown only) and new Storage
+    remaining = None
+    if hasattr(storage, "get_cooldown_remaining"):
+        remaining = storage.get_cooldown_remaining(
+            user.id, settings.dm_cooldown_seconds
         )
+        on_cooldown = remaining > 0
+    else:
+        on_cooldown = not storage.check_cooldown(
+            user.id, settings.dm_cooldown_seconds
+        )
+
+    if on_cooldown:
+        if remaining is not None:
+            log.info(
+                "[PAID] └─ skipped target_user=%s reason=cooldown "
+                "remaining=%.0fs (%.1fh)",
+                user.name,
+                remaining,
+                remaining / 3600.0,
+            )
+        else:
+            log.info(
+                "[PAID] └─ skipped target_user=%s reason=cooldown",
+                user.name,
+            )
         return
 
     session_key = f"user-{user.id}"

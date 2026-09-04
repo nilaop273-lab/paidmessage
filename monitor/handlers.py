@@ -209,8 +209,17 @@ async def handle_message(
         message.id,
     )
 
-    if not storage.check_cooldown(user.id, settings.dm_cooldown_seconds):
-        log.info("[PAID] └─ skipped target_user=%s reason=cooldown", user.name)
+    remaining = storage.get_cooldown_remaining(
+        user.id, settings.dm_cooldown_seconds
+    )
+    if remaining > 0:
+        log.info(
+            "[PAID] └─ skipped target_user=%s reason=cooldown "
+            "remaining=%.0fs (%.1fh)",
+            user.name,
+            remaining,
+            remaining / 3600.0,
+        )
         return
 
     session_key = f"user-{user.id}"
@@ -220,8 +229,12 @@ async def handle_message(
         )
         return
 
+    # pass full text so DM sender can detect Bloop / MEGALODON requirements
+    trigger_text = content_override if content_override is not None else (
+        message.content or ""
+    )
     ok = await dm_sender.send_dm_sequence(
-        user, message.author.name, session_key
+        user, message.author.name, session_key, trigger_text=trigger_text
     )
     if not ok:
         log.info("[PAID] └─ DM not delivered target_user=%s", user.name)

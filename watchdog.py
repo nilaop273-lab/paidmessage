@@ -337,6 +337,16 @@ async def _route(session, text):
             "/logs off  mute log forwarding\n"
             "/logs      check current log state\n"
             "\n"
+            "🎮  PRESENCE\n"
+            "/playing <text>     set Playing status\n"
+            "/watching <text>    set Watching status\n"
+            "/listening <text>   set Listening status\n"
+            "/competing <text>   set Competing status\n"
+            "/stream <text>      set Streaming status\n"
+            "/presence           show current presence\n"
+            "/presence clear     clear activity\n"
+            "/presence status <online|idle|dnd|invisible>\n"
+            "\n"
             "❓  OTHER\n"
             "/help      show this message",
         )

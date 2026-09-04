@@ -53,7 +53,7 @@ class PresenceManager:
             f"(status={self.status})"
         )
 
-    async def apply(self):
+    async def apply(self, quiet: bool = False):
         if self._client is None or self._client.user is None:
             return
         try:
@@ -61,7 +61,8 @@ class PresenceManager:
                 await self._client.change_presence(
                     activity=None, status=self.status
                 )
-                log.info("[PRESENCE] cleared — %s", self.describe())
+                if not quiet:
+                    log.info("[PRESENCE] cleared — %s", self.describe())
                 return
 
             atype = ACTIVITY_TYPES.get(
@@ -77,7 +78,8 @@ class PresenceManager:
             await self._client.change_presence(
                 activity=activity, status=self.status
             )
-            log.info("[PRESENCE] applied — %s", self.describe())
+            if not quiet:
+                log.info("[PRESENCE] applied — %s", self.describe())
         except Exception as exc:
             log.error("[PRESENCE] apply failed: %s: %s", type(exc).__name__, exc)
 
@@ -146,7 +148,8 @@ class PresenceManager:
                 self.activity_type = atype
                 self.activity_text = text
                 self.enabled = True
-                await self.apply()
+                # quiet=True — do not spam logs on every rotate tick
+                await self.apply(quiet=True)
                 self._cycle_index = (idx + 1) % len(self._cycle)
                 await asyncio.sleep(max(1.0, float(duration)))
         except asyncio.CancelledError:

@@ -4,11 +4,11 @@ import logging
 import time
 
 import aiohttp
-from tg.presence_commands import PRESENCE_HELP
+
+from tg.presence_commands import PRESENCE_HELP, handle_presence_command
 from tg.state import POST_RESUME_DELAY
 
 log = logging.getLogger("tg.telegram_bot")
-
 API_URL = "https://api.telegram.org/bot{token}/{method}"
 
 
@@ -28,13 +28,21 @@ class TelegramLogHandler(logging.Handler):
 
 
 class TelegramBot:
-    def __init__(self, token, chat_id, captcha_queue,
-                 discord_client=None, polling=True):
+    def __init__(
+        self,
+        token,
+        chat_id,
+        captcha_queue,
+        discord_client=None,
+        polling=True,
+        presence=None,
+    ):
         self.token = token
         self.chat_id = chat_id
         self.captcha_queue = captcha_queue
         self.discord_client = discord_client
         self.polling = polling
+        self.presence = presence
         self.log_queue = asyncio.Queue()
         self.log_forwarding = True
         self._session = None
@@ -78,8 +86,10 @@ class TelegramBot:
             for attempt in range(3):
                 try:
                     data = await self._api(
-                        "sendMessage", http_timeout=15,
-                        chat_id=self.chat_id, text=chunk,
+                        "sendMessage",
+                        http_timeout=15,
+                        chat_id=self.chat_id,
+                        text=chunk,
                     )
                     if data.get("ok"):
                         return
@@ -87,7 +97,8 @@ class TelegramBot:
                 except Exception as exc:
                     log.error(
                         "telegram sendMessage failed: %s: %s",
-                        type(exc).__name__, exc,
+                        type(exc).__name__,
+                        exc,
                     )
                 await asyncio.sleep(1)
 
@@ -105,12 +116,13 @@ class TelegramBot:
         while True:
             try:
                 data = await self._api(
-                    "getUpdates", http_timeout=10, timeout=0, offset=-1,
+                    "getUpdates", http_timeout=10, timeout=0, offset=-1
                 )
             except Exception as exc:
                 log.error(
                     "drain getUpdates failed: %s: %s",
-                    type(exc).__name__, exc,
+                    type(exc).__name__,
+                    exc,
                 )
                 return
             result = data.get("result", [])
@@ -119,7 +131,8 @@ class TelegramBot:
             self._offset = max(u["update_id"] for u in result) + 1
             log.info(
                 "drained %d stale updates, offset=%s",
-                len(result), self._offset,
+                len(result),
+                self._offset,
             )
 
     async def _poll_loop(self):
@@ -128,13 +141,16 @@ class TelegramBot:
         while not self._stop:
             try:
                 data = await self._api(
-                    "getUpdates", http_timeout=50,
-                    timeout=30, offset=self._offset,
+                    "getUpdates",
+                    http_timeout=50,
+                    timeout=30,
+                    offset=self._offset,
                 )
             except Exception as exc:
                 log.error(
                     "getUpdates failed: %s: %s",
-                    type(exc).__name__, exc,
+                    type(exc).__name__,
+                    exc,
                 )
                 await asyncio.sleep(2)
                 continue
@@ -156,9 +172,17 @@ class TelegramBot:
     async def _handle_command(self, text):
         if not text or not text.startswith("/"):
             return
+
+        # presence commands first (works in non-watchdog mode)
+        if self.presence is not None:
+            handled = await handle_presence_command(
+                text, self.presence, self._send_message
+            )
+            if handled:
+                return
+
         parts = text.split()
         cmd = parts[0].lower().lstrip("/")
-
         if cmd == "resume":
             waiter = self.captcha_queue.pop_next()
             if waiter is None:
@@ -169,7 +193,6 @@ class TelegramBot:
                 f"resumed {waiter.username} — retrying part "
                 f"{waiter.part_index} after {POST_RESUME_DELAY}s"
             )
-
         elif cmd == "skip":
             if len(parts) < 2:
                 await self._send_message("usage: /skip <n>")
@@ -187,10 +210,8 @@ class TelegramBot:
             await self._send_message(
                 f"aborted waiter at position {n} ({waiter.username})"
             )
-
         elif cmd == "queue":
             await self._send_queue()
-
         elif cmd == "logs":
             if len(parts) > 1:
                 if parts[1].lower() in ("on", "off"):
@@ -200,10 +221,8 @@ class TelegramBot:
                     return
             state = "on" if self.log_forwarding else "off"
             await self._send_message(f"log forwarding is {state}")
-
         elif cmd == "status":
             await self._send_status()
-
         elif cmd == "help":
             await self._send_message(
                 "/resume — unblock next captcha waiter\n"
@@ -217,7 +236,6 @@ class TelegramBot:
                 "\n"
                 "/help — this list"
             )
-
         else:
             await self._send_message(f"unknown command: /{cmd}")
 
@@ -247,12 +265,16 @@ class TelegramBot:
         h, rem = divmod(uptime, 3600)
         m, s = divmod(rem, 60)
         uptime_str = f"{h}h {m}m {s}s" if h else f"{m}m {s}s"
+        presence_line = ""
+        if self.presence is not None:
+            presence_line = f"\n{self.presence.describe()}"
         await self._send_message(
             f"🤖 STATUS\n"
             f"account: {user.name} ({user.id})\n"
             f"discord_ready: {ready}\n"
             f"bot_uptime: {uptime_str}\n"
             f"captcha_queue: {len(self.captcha_queue)} pending"
+            f"{presence_line}"
         )
 
     async def _log_forwarder_loop(self):

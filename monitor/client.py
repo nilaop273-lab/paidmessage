@@ -2,6 +2,7 @@
 import logging
 import discord
 from monitor.handlers import handle_message
+from monitor.presence import PresenceManager
 
 log = logging.getLogger("monitor")
 
@@ -108,11 +109,13 @@ def _text_from_raw_payload(raw: dict) -> str:
 
 
 class MonitorClient(discord.Client):
-    def __init__(self, settings, storage, dm_sender=None):
+    def __init__(self, settings, storage, dm_sender=None, presence=None):
         super().__init__()
         self.cfg = settings
         self._storage = storage
         self._dm_sender = dm_sender
+        self.presence = presence or PresenceManager()
+        self.presence.attach(self)
 
     async def on_ready(self):
         user = self.user
@@ -132,6 +135,12 @@ class MonitorClient(discord.Client):
             "└─ READY"
         )
         log.info("[PAID] %s", banner)
+        # apply custom presence if configured
+        try:
+            import asyncio
+            asyncio.create_task(self.presence.apply())
+        except Exception as exc:
+            log.debug("[PAID] presence apply on_ready failed: %s", exc)
 
     async def _raw_get_message(self, channel_id: int, message_id: int):
         """Bypass library parsing — hit the REST endpoint directly."""

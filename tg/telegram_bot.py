@@ -4,7 +4,7 @@ import logging
 import time
 
 import aiohttp
-
+from tg.presence_commands import PRESENCE_HELP
 from tg.state import POST_RESUME_DELAY
 
 log = logging.getLogger("tg.telegram_bot")
@@ -212,6 +212,9 @@ class TelegramBot:
                 "/logs on|off — toggle log forwarding\n"
                 "/logs — show log forwarding state\n"
                 "/status — show account and uptime\n"
+                "\n"
+                f"{PRESENCE_HELP}\n"
+                "\n"
                 "/help — this list"
             )
 

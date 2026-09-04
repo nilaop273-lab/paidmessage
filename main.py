@@ -6,6 +6,7 @@ import os
 from config import load_settings
 from monitor.client import MonitorClient
 from monitor.dm_sender import DMSender
+from monitor.presence import PresenceManager
 from monitor.storage import Storage
 from tg.signals import SignalManager
 from tg.state import CaptchaQueue
@@ -28,10 +29,13 @@ async def main():
     settings = load_settings()
     storage = Storage()
     captcha_queue = CaptchaQueue()
+    presence = PresenceManager()
+
     watchdog_mode = os.getenv("WATCHDOG_MODE", "").strip().lower() == "true"
 
-    # Create Discord client first so TelegramBot can reference it for /status
-    client = MonitorClient(settings, storage, None)
+    # Discord client first so TelegramBot / presence can reference it
+    client = MonitorClient(settings, storage, None, presence=presence)
+
     telegram_bot = None
     signal_mgr = None
     notify_cb = None
@@ -44,7 +48,8 @@ async def main():
                 settings.tg_chat_id,
                 captcha_queue,
                 discord_client=client,
-                polling=False,          # watchdog owns getUpdates
+                polling=False,  # watchdog owns getUpdates
+                presence=presence,
             )
             notify_cb = telegram_bot.notify_captcha
             side_tasks.append(asyncio.create_task(telegram_bot.run()))
@@ -52,7 +57,9 @@ async def main():
             logging.getLogger("main").warning(
                 "watchdog mode but no TG token — captcha alerts disabled"
             )
-        signal_mgr = SignalManager(captcha_queue, telegram_bot)
+        signal_mgr = SignalManager(
+            captcha_queue, telegram_bot, presence=presence
+        )
         side_tasks.append(asyncio.create_task(signal_mgr.watch_loop()))
         logging.getLogger("main").info(
             "WATCHDOG_MODE=true — logs/replies sent via sendMessage "
@@ -65,7 +72,8 @@ async def main():
                 settings.tg_chat_id,
                 captcha_queue,
                 discord_client=client,
-                polling=True,           # standalone poll loop
+                polling=True,
+                presence=presence,
             )
             notify_cb = telegram_bot.notify_captcha
             side_tasks.append(asyncio.create_task(telegram_bot.run()))

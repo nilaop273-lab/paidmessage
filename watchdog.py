@@ -7,9 +7,9 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib.parse import quote_plus
 
 import aiohttp
-
 from config import load_env_file
 
 logging.basicConfig(
@@ -28,7 +28,6 @@ SIG_DIR.mkdir(exist_ok=True)
 _env = load_env_file(str(BASE_DIR / ".env"))
 TG_BOT_TOKEN = (_env.get("TG_BOT_TOKEN") or os.getenv("TG_BOT_TOKEN", "")).strip()
 TG_CHAT_ID = int(_env.get("TG_CHAT_ID") or os.getenv("TG_CHAT_ID", "0") or "0")
-
 API_URL = "https://api.telegram.org/bot{token}/{method}"
 _MAX_CHARS = 4000
 _POLL_TIMEOUT = 2
@@ -126,27 +125,21 @@ def _clean_signals():
 
 def _start_bot():
     global _proc, _started_at, _log_handle
-
     if _is_running():
         return False, f"⚠️ Bot already running (pid: {_proc.pid})"
     if not MAIN_SCRIPT.exists():
         return False, f"❌ main.py not found at {MAIN_SCRIPT}"
-
     _clean_signals()
-
     env = os.environ.copy()
     env["WATCHDOG_MODE"] = "true"
-
     log_path = BASE_DIR / f"bot_{int(time.time())}.log"
     try:
         _log_handle = open(log_path, "a", encoding="utf-8", buffering=1)
     except OSError as exc:
         logger.warning("could not open log file %s: %s", log_path, exc)
         _log_handle = None
-
     out = _log_handle if _log_handle else None
     err = _log_handle if _log_handle else None
-
     try:
         _proc = subprocess.Popen(
             [PYTHON_BIN, "-u", str(MAIN_SCRIPT)],
@@ -171,15 +164,12 @@ def _start_bot():
 
 async def _stop_bot(session):
     global _proc, _started_at, _log_handle
-
     if not _is_running():
         _proc = None
         _started_at = None
         return "⚠️ Bot is not running."
-
     pid = _proc.pid
     logger.info("sending SIGTERM to main.py (pid: %d)", pid)
-
     try:
         if sys.platform == "win32":
             _proc.terminate()
@@ -191,9 +181,7 @@ async def _stop_bot(session):
         return "✅ Bot was already dead — cleaned up."
     except Exception as exc:
         return f"❌ SIGTERM failed: {exc}"
-
     await _send(session, f"⏳ Stopping bot (pid: {pid}) — waiting up to 8s…")
-
     for _ in range(16):
         await asyncio.sleep(0.5)
         if not _is_running():
@@ -208,7 +196,6 @@ async def _stop_bot(session):
         except Exception:
             pass
         await asyncio.sleep(1)
-
     _proc = None
     _started_at = None
     if _log_handle is not None:
@@ -242,18 +229,26 @@ async def _check_crash(session):
         _started_at = None
 
 
+def _is_presence_command(lower: str) -> bool:
+    return (
+        lower.startswith("/playing")
+        or lower.startswith("/watching")
+        or lower.startswith("/listening")
+        or lower.startswith("/competing")
+        or lower.startswith("/stream")
+        or lower.startswith("/presence")
+    )
+
+
 async def _route(session, text):
     text = text.strip()
     lower = text.lower()
-
     if lower.startswith("/start"):
         ok, msg = _start_bot()
         await _send(session, msg)
-
     elif lower.startswith("/stop"):
         msg = await _stop_bot(session)
         await _send(session, msg)
-
     elif lower.startswith("/status"):
         if _is_running():
             assert _proc is not None
@@ -264,14 +259,12 @@ async def _route(session, text):
             )
         else:
             await _send(session, "🤖 Bot: STOPPED")
-
     elif lower.startswith("/resume"):
         if not _is_running():
             await _send(session, "⚠️ Bot is not running — /start it first")
             return
         _write_cmd("cmd_resume")
         await _send(session, "⏳ Resume signal sent — bot will reply shortly")
-
     elif lower.startswith("/skip"):
         if not _is_running():
             await _send(session, "⚠️ Bot is not running")
@@ -295,14 +288,12 @@ async def _route(session, text):
             return
         _write_cmd(f"cmd_skip_{pos}")
         await _send(session, f"🗑 Skip signal sent for position {pos}")
-
     elif lower.startswith("/queue"):
         if not _is_running():
             await _send(session, "⚠️ Bot is not running — queue empty")
             return
         _write_cmd("cmd_queue")
         await _send(session, "📋 Queue requested — bot will reply shortly")
-
     elif lower.startswith("/logs"):
         if not _is_running():
             await _send(session, "⚠️ Bot is not running")
@@ -316,7 +307,14 @@ async def _route(session, text):
         else:
             _write_cmd("cmd_logs_status")
             await _send(session, "📋 Log status requested")
-
+    elif _is_presence_command(lower):
+        if not _is_running():
+            await _send(session, "⚠️ Bot is not running — /start it first")
+            return
+        # encode full command (without leading slash) into signal name
+        payload = quote_plus(text.strip().lstrip("/"))
+        _write_cmd(f"cmd_presence__{payload}")
+        await _send(session, "⏳ Presence signal sent — bot will reply shortly")
     elif lower.startswith("/help"):
         await _send(
             session,
@@ -350,7 +348,6 @@ async def _route(session, text):
             "❓  OTHER\n"
             "/help      show this message",
         )
-
     else:
         await _send(
             session,
@@ -365,9 +362,7 @@ async def run():
             file=sys.stderr,
         )
         sys.exit(1)
-
     logger.info("watchdog started — sole Telegram poller on this token")
-
     async with aiohttp.ClientSession() as session:
         offset = await _drain_stale(session)
         await _send(
@@ -379,7 +374,6 @@ async def run():
             "/status — process state\n"
             "/help   — all commands",
         )
-
         while True:
             updates = await _get_updates(session, offset)
             for update in updates:
@@ -391,7 +385,6 @@ async def run():
                 if chat_id != str(TG_CHAT_ID):
                     continue
                 await _route(session, message.get("text") or "")
-
             await _check_crash(session)
 
 

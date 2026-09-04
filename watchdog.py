@@ -342,8 +342,10 @@ async def _route(session, text):
             "/competing <text>   set Competing status\n"
             "/stream <text>      set Streaming status\n"
             "/presence           show current presence\n"
-            "/presence clear     clear activity\n"
+            "/presence clear     clear activity + stop rotation\n"
             "/presence status <online|idle|dnd|invisible>\n"
+            "/presence rotate <spec>  cycle activities\n"
+            "  e.g. playing:hi:10, watching:board:5, listening:x:8\n"
             "\n"
             "❓  OTHER\n"
             "/help      show this message",
